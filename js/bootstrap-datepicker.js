@@ -27,44 +27,67 @@
 		this.language = options.language||this.element.data('date-language')||"en";
 		this.language = this.language in dates ? this.language : "en";
 		this.format = DPGlobal.parseFormat(options.format||this.element.data('date-format')||'mm/dd/yyyy');
-		this.picker = $(DPGlobal.template)
-							.appendTo('body')
-							.on({
-								click: $.proxy(this.click, this),
-								mousedown: $.proxy(this.mousedown, this)
-							});
+        this.isInline = false;
 		this.isInput = this.element.is('input');
 		this.component = this.element.is('.date') ? this.element.find('.add-on') : false;
 		if(this.component && this.component.length === 0)
 			this.component = false;
 
-		if (this.isInput) {
-			this.element.on({
-				focus: $.proxy(this.show, this),
-				blur: $.proxy(this._hide, this),
-				keyup: $.proxy(this.update, this),
-				keydown: $.proxy(this.keydown, this)
-			});
-		} else {
-			if (this.component){
-				this.component.on('click', $.proxy(this.show, this));
-				var element = this.element.find('input');
-				element.on({
-					blur: $.proxy(this._hide, this)
-				})
-			} else {
-				this.element.on('click', $.proxy(this.show, this));
-			}
-		}
+       if (this.isInput) {   //single input
+            this.element.on({
+                focus: $.proxy(this.show, this),
+                blur: $.proxy(this._hide, this),
+                keyup: $.proxy(this.update, this),
+                keydown: $.proxy(this.keydown, this)
+            });
+        } else if(this.component) {  //component: input + button
+                // For components that are not readonly, allow keyboard nav
+                this.element.find('input').on({
+                    focus: $.proxy(this.show, this),
+                    blur: $.proxy(this._hide, this),
+                    keyup: $.proxy(this.update, this),
+                    keydown: $.proxy(this.keydown, this)
+                });
 
+                this.component.on('click', $.proxy(this.show, this));
+                var element = this.element.find('input');
+                element.on({
+                    blur: $.proxy(this._hide, this)
+                });
+        } else if(this.element.is('div')) {  //inline datepicker
+            this.isInline = true;
+        } else {
+            this.element.on('click', $.proxy(this.show, this));
+        }            
+        
+        this.picker = $(DPGlobal.template)
+                            .appendTo(this.isInline ? this.element : 'body')
+                            .on({
+                                click: $.proxy(this.click, this),
+                                mousedown: $.proxy(this.mousedown, this)
+                            });        
+                            
+        if(this.isInline) {
+            this.picker.addClass('datepicker-inline');                           
+        } else {
+            this.picker.addClass('dropdown-menu');                           
+        }
+            
 		this.autoclose = false;
 		if ('autoclose' in options) {
 			this.autoclose = options.autoclose;
 		} else if ('dateAutoclose' in this.element.data()) {
 			this.autoclose = this.element.data('date-autoclose');
 		}
+        
+        this.keyboardNavigation = true;
+        if ('keyboardNavigation' in options) {
+            this.keyboardNavigation = options.keyboardNavigation;
+        } else if ('dateKeyboardNavigation' in this.element.data()) {
+            this.keyboardNavigation = this.element.data('date-keyboard-navigation');
+        }
 
-		switch(options.startView){
+		switch(options.startView || this.element.data('date-start-view')){
 			case 2:
 			case 'decade':
 				this.viewMode = this.startViewMode = 2;
@@ -91,6 +114,10 @@
 		this.setRange(options.range);
 		this.update();
 		this.showMode();
+        
+        if(this.isInline) {
+            this.show();
+        }
 	};
 
 	Datepicker.prototype = {
@@ -99,6 +126,7 @@
 		show: function(e) {
 			this.picker.show();
 			this.height = this.component ? this.component.outerHeight() : this.element.outerHeight();
+			this.update();
 			this.place();
 			$(window).on('resize', $.proxy(this.place, this));
 			if (e ) {
@@ -140,6 +168,7 @@
 		},
 
 		hide: function(e){
+            if(this.isInline) return;
 			this.picker.hide();
 			$(window).off('resize', this.place);
 			this.viewMode = this.startViewMode;
@@ -158,14 +187,14 @@
 		setValue: function(new_date) {
 			if (new_date)
 				this.date = new_date;
-			var formated = DPGlobal.formatDate(this.date, this.format, this.language);
+			var formatted = DPGlobal.formatDate(this.date, this.format, this.language);
 			if (!this.isInput) {
 				if (this.component){
-					this.element.find('input').prop('value', formated);
+					this.element.find('input').prop('value', formatted);
 				}
-				this.element.data('date', formated);
+				this.element.data('date', formatted);
 			} else {
-				this.element.prop('value', formated);
+				this.element.prop('value', formatted);
 			}
 		},
 
@@ -188,18 +217,31 @@
 		},
 
 		place: function(){
+            if(this.isInline) return;
+			var zIndex = parseInt(this.element.parents().filter(function() {
+                          	return $(this).css('z-index') != 'auto';
+                        }).first().css('z-index'))+10;		
 			var offset = this.component ? this.component.offset() : this.element.offset();
 			this.picker.css({
 				top: offset.top + this.height,
-				left: offset.left
+				left: offset.left,
+				zIndex: zIndex
 			});
 		},
 
 		update: function(){
-			this.date = DPGlobal.parseDate(
-				this.isInput ? this.element.prop('value') : this.element.data('date'),
-				this.format, this.language
-			);
+            var date, fromArgs = false;
+            if(arguments && arguments.length && (typeof arguments[0] === 'string' || arguments[0] instanceof Date)) {
+                date = arguments[0];
+                fromArgs = true;
+            } else {
+                date = this.isInput ? this.element.prop('value') : this.element.data('date') || this.element.find('input').prop('value');
+            }
+             
+			this.date = DPGlobal.parseDate(date, this.format, this.language);
+            
+            if(fromArgs) this.setValue();
+            
 			if (this.date < this.startDate) {
 				this.viewDate = new Date(this.startDate);
 			} else if (this.date > this.endDate) {
@@ -278,13 +320,14 @@
 			this.updateNavArrows();
 			this.fillMonths();
 			var prevMonth = new Date(year, month-1, 28,0,0,0,0),
-				day = DPGlobal.getDaysInMonth(prevMonth.getFullYear(), prevMonth.getMonth());
+				day = DPGlobal.getDaysInMonth(prevMonth.getFullYear(), prevMonth.getMonth()),
+				prevDate, dstDay = 0, date;
 			prevMonth.setDate(day);
 			prevMonth.setDate(day - (prevMonth.getDay() - this.weekStart + 7)%7);
 			var nextMonth = new Date(prevMonth);
 			nextMonth.setDate(nextMonth.getDate() + 42);
 			nextMonth = nextMonth.valueOf();
-			html = [];
+			var html = [];
 			var clsName;
 			while(prevMonth.valueOf() < nextMonth) {
 				if (prevMonth.getDay() == this.weekStart) {
@@ -296,7 +339,36 @@
 				if (prevMonth.getDay() == this.weekEnd) {
 					html.push('</tr>');
 				}
+				prevDate = prevMonth.getDate();
 				prevMonth.setDate(prevMonth.getDate()+1);
+				if (prevMonth.getHours() != 0) {
+					// Fix for DST bug: if we are no longer at start of day, a DST jump probably happened
+					// We either fell back (eg, Jan 1 00:00 -> Jan 1 23:00)
+					// or jumped forward   (eg, Jan 1 00:00 -> Jan 2 01:00)
+					// Unfortunately, I can think of no way to test this in the unit tests, as it depends
+					// on the TZ of the client system.
+					if (!dstDay) {
+						// We are not currently handling a dst day (next round will deal with it)
+						if (prevMonth.getDate() == prevDate)
+							// We must compensate for fall-back
+							dstDay = -1;
+						else
+							// We must compensate for a jump-ahead
+							dstDay = +1;
+					}
+					else {
+						// The last round was our dst day (hours are still non-zero)
+						if (dstDay == -1)
+							// For a fall-back, fast-forward to next midnight
+							prevMonth.setHours(24);
+						else
+							// For a jump-ahead, just reset to 0
+							prevMonth.setHours(0);
+						// Reset minutes, as some TZs may be off by portions of an hour
+						prevMonth.setMinutes(0);
+						dstDay = 0;
+					}
+				}
 			}
 			this.picker.find('.datepicker-days tbody').empty().append(html.join(''));
 			var currentYear = this.date.getFullYear();
@@ -396,12 +468,21 @@
 						break;
 					case 'span':
 						if (!target.is('.disabled')) {
+							this.viewDate.setDate(1);
 							if (target.is('.month')) {
 								var month = target.parent().find('span').index(target);
 								this.viewDate.setMonth(month);
+								this.element.trigger({
+									type: 'changeMonth',
+									date: this.viewDate
+								});
 							} else {
 								var year = parseInt(target.text(), 10)||0;
 								this.viewDate.setFullYear(year);
+								this.element.trigger({
+									type: 'changeYear',
+									date: this.viewDate
+								});
 							}
 							this.showMode(-1);
 							this.fill();
@@ -440,7 +521,7 @@
 								element = this.element;
 							} else if (this.component){
 								element = this.element.find('input');
-							}
+							} 
 							if (element) {
 								element.change();
 								if (this.autoclose) {
@@ -502,6 +583,10 @@
 			return this.moveMonth(date, dir*12);
 		},
 
+		dateWithinRange: function(date){
+			return date >= this.startDate && date <= this.endDate;
+		},
+
 		keydown: function(e){
 			if (this.picker.is(':not(:visible)')){
 				if (e.keyCode == 27) // allow escape to hide and re-show picker
@@ -509,7 +594,8 @@
 				return;
 			}
 			var dateChanged = false,
-				dir, day, month;
+				dir, day, month,
+				newDate, newViewDate;
 			switch(e.keyCode){
 				case 27: // escape
 					this.hide();
@@ -517,39 +603,53 @@
 					break;
 				case 37: // left
 				case 39: // right
+                    if (!this.keyboardNavigation) break;
 					dir = e.keyCode == 37 ? -1 : 1;
 					if (e.ctrlKey){
-						this.date = this.moveYear(this.date, dir);
-						this.viewDate = this.moveYear(this.viewDate, dir);
+						newDate = this.moveYear(this.date, dir);
+						newViewDate = this.moveYear(this.viewDate, dir);
 					} else if (e.shiftKey){
-						this.date = this.moveMonth(this.date, dir);
-						this.viewDate = this.moveMonth(this.viewDate, dir);
+						newDate = this.moveMonth(this.date, dir);
+						newViewDate = this.moveMonth(this.viewDate, dir);
 					} else {
-						this.date.setDate(this.date.getDate() + dir);
-						this.viewDate.setDate(this.viewDate.getDate() + dir);
+						newDate = new Date(this.date);
+						newDate.setDate(this.date.getDate() + dir);
+						newViewDate = new Date(this.viewDate);
+						newViewDate.setDate(this.viewDate.getDate() + dir);
 					}
-					this.setValue();
-					this.update();
-					e.preventDefault();
-					dateChanged = true;
+					if (this.dateWithinRange(newDate)){
+						this.date = newDate;
+						this.viewDate = newViewDate;
+						this.setValue();
+						this.update();
+						e.preventDefault();
+						dateChanged = true;
+					}
 					break;
 				case 38: // up
 				case 40: // down
+                    if (!this.keyboardNavigation) break;
 					dir = e.keyCode == 38 ? -1 : 1;
 					if (e.ctrlKey){
-						this.date = this.moveYear(this.date, dir);
-						this.viewDate = this.moveYear(this.viewDate, dir);
+						newDate = this.moveYear(this.date, dir);
+						newViewDate = this.moveYear(this.viewDate, dir);
 					} else if (e.shiftKey){
-						this.date = this.moveMonth(this.date, dir);
-						this.viewDate = this.moveMonth(this.viewDate, dir);
+						newDate = this.moveMonth(this.date, dir);
+						newViewDate = this.moveMonth(this.viewDate, dir);
 					} else {
-						this.date.setDate(this.date.getDate() + dir * 7);
-						this.viewDate.setDate(this.viewDate.getDate() + dir * 7);
+						newDate = new Date(this.date);
+						newDate.setDate(this.date.getDate() + dir * 7);
+						newViewDate = new Date(this.viewDate);
+						newViewDate.setDate(this.viewDate.getDate() + dir * 7);
 					}
-					this.setValue();
-					this.update();
-					e.preventDefault();
-					dateChanged = true;
+					if (this.dateWithinRange(newDate)){
+						this.date = newDate;
+						this.viewDate = newViewDate;
+						this.setValue();
+						this.update();
+						e.preventDefault();
+						dateChanged = true;
+					}
 					break;
 				case 13: // enter
 					this.hide();
@@ -644,7 +744,9 @@
 					$this.data('datepicker', (data = new Datepicker(this, $.extend({}, $.fn.datepicker.defaults,options))));
 				}
 			}
-			if (typeof option == 'string') data[option].apply(data, args);
+			if (typeof option == 'string' && typeof data[option] == 'function') {
+				data[option].apply(data, args);
+			}
 		});
 	};
 
@@ -723,49 +825,58 @@
 				}
 				return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0);
 			}
-			var parts = date ? date.match(this.nonpunctuation) : [],
+			var parts = date && date.match(this.nonpunctuation) || [],
 				date = new Date(),
-				val, filtered;
+				parsed = {},
+				setters_order = ['yyyy', 'yy', 'M', 'MM', 'm', 'mm', 'd', 'dd'],
+				setters_map = {
+					yyyy: function(d,v){ return d.setFullYear(v); },
+					yy: function(d,v){ return d.setFullYear(2000+v); },
+					m: function(d,v){
+						v -= 1;
+						while (v<0) v += 12;
+						v %= 12;
+						d.setMonth(v);
+						while (d.getMonth() != v)
+							d.setDate(d.getDate()-1);
+						return d;
+					},
+					d: function(d,v){ return d.setDate(v); }
+				},
+				val, filtered, part;
+			setters_map['M'] = setters_map['MM'] = setters_map['mm'] = setters_map['m'];
+			setters_map['dd'] = setters_map['d'];
 			date = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0);
 			if (parts.length == format.parts.length) {
 				for (var i=0, cnt = format.parts.length; i < cnt; i++) {
-					val = parseInt(parts[i], 10)||1;
-					switch(format.parts[i]) {
-						case 'MM':
-							filtered = $(dates[language].months).filter(function(){
-								var m = this.slice(0, parts[i].length),
-									p = parts[i].slice(0, m.length);
-								return m == p;
-							});
-							val = $.inArray(filtered[0], dates[language].months) + 1;
-							break;
-						case 'M':
-							filtered = $(dates[language].monthsShort).filter(function(){
-								var m = this.slice(0, parts[i].length),
-									p = parts[i].slice(0, m.length);
-								return m == p;
-							});
-							val = $.inArray(filtered[0], dates[language].monthsShort) + 1;
-							break;
+					val = parseInt(parts[i], 10);
+					part = format.parts[i];
+					if (isNaN(val)) {
+						switch(part) {
+							case 'MM':
+								filtered = $(dates[language].months).filter(function(){
+									var m = this.slice(0, parts[i].length),
+										p = parts[i].slice(0, m.length);
+									return m == p;
+								});
+								val = $.inArray(filtered[0], dates[language].months) + 1;
+								break;
+							case 'M':
+								filtered = $(dates[language].monthsShort).filter(function(){
+									var m = this.slice(0, parts[i].length),
+										p = parts[i].slice(0, m.length);
+									return m == p;
+								});
+								val = $.inArray(filtered[0], dates[language].monthsShort) + 1;
+								break;
+						}
 					}
-					switch(format.parts[i]) {
-						case 'dd':
-						case 'd':
-							date.setDate(val);
-							break;
-						case 'mm':
-						case 'm':
-						case 'MM':
-						case 'M':
-							date.setMonth(val - 1);
-							break;
-						case 'yy':
-							date.setFullYear(2000 + val);
-							break;
-						case 'yyyy':
-							date.setFullYear(val);
-							break;
-					}
+					parsed[part] = val;
+				}
+				for (var i=0, s; i<setters_order.length; i++){
+					s = setters_order[i];
+					if (s in parsed)
+						setters_map[s](date, parsed[s])
 				}
 			}
 			return date;
@@ -799,7 +910,7 @@
 						'</thead>',
 		contTemplate: '<tbody><tr><td colspan="7"></td></tr></tbody>'
 	};
-	DPGlobal.template = '<div class="datepicker dropdown-menu">'+
+	DPGlobal.template = '<div class="datepicker">'+
 							'<div class="datepicker-days">'+
 								'<table class=" table-condensed">'+
 									DPGlobal.headTemplate+
@@ -820,4 +931,4 @@
 							'</div>'+
 						'</div>';
 
-}( window.jQuery )
+}( window.jQuery );
